@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beach Project</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #10202c; overflow: hidden; }
+  canvas { display: block; }
+  #start {
+    position: fixed; inset: 0; display: grid; place-content: center; text-align: center; cursor: pointer;
+    color: #fff; font-family: system-ui, sans-serif; background: rgba(8, 24, 36, 0.35);
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  }
+  #start.hidden { display: none; }
+  #start h1 { margin: 0 0 12px; font-size: clamp(32px, 6vw, 72px); }
+  #start p { margin: 0; font-size: clamp(16px, 2.2vw, 26px); }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/sample_project/node_modules/three/build/three.module.js", "three/addons/": "/sample_project/node_modules/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="start">
+  <h1>Click to start</h1>
+  <p>WASD to walk, mouse to look, Shift to run, Esc to stop</p>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

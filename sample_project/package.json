@@ -1,0 +1,11 @@
+{
+  "name": "beach-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "node serve.mjs"
+  },
+  "dependencies": {
+    "three": "0.187.0"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "blockWritesOutsideWorkingDirectories": true,
+    "allow": [
+      "Bash(node --check *)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/speak-summary.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

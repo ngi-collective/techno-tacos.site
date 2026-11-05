@@ -74,7 +74,7 @@ const createGrass = (count) => {
     node.position.set(x, sandHeight(x, z) - 0.02, z);
     node.rotation.set(0, random() * 6.28, 0);
     node.scale.setScalar(0.7 + random() * 1.1);
-    color.setHSL(0.2 + random() * 0.07, 0.42, 0.26 + random() * 0.16);
+    color.setHSL(0.2 + random() * 0.07, 0.45, 0.11 + random() * 0.09);
   });
 };
 

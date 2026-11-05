@@ -252,6 +252,26 @@ export const setupPose = (units, { s, nest, frontZ, mouthZ, tunnelRadius, boxHei
   };
 };
 
+// Lamps along the tunnel, as fractions from the box to the ocean. The first ones listed get a real light when the quality setting limits them.
+export const GUIDING_LIGHTS = [0.985, 0.62, 0.3, 0.94, 0.89, 0.76, 0.46, 0.15];
+
+const BEAM_FULL_ANGLE = (5 * Math.PI) / 180;
+const BEAM_EDGE_ANGLE = (14 * Math.PI) / 180;
+
+// Pure: how bright a lamp looks from a viewpoint. It shines a narrow beam along `axis`, a unit vector.
+// From far down the tunnel you are in the beam. Close under the lamp, or past it, you are out of the beam and it looks dark.
+export const beamBrightness = (viewer, lamp, axis) => {
+  const [dx, dy, dz] = [viewer.x - lamp.x, viewer.y - lamp.y, viewer.z - lamp.z];
+  const gap = Math.hypot(dx, dy, dz);
+  if (gap === 0) return 0;
+  const along = (dx * axis.x + dy * axis.y + dz * axis.z) / gap;
+  const offAxis = Math.acos(Math.max(-1, Math.min(1, along)));
+  return 1 - ease(clamp01((offAxis - BEAM_FULL_ANGLE) / (BEAM_EDGE_ANGLE - BEAM_FULL_ANGLE)));
+};
+
+// How far along the tunnel a lamp's beam reaches the floor, in metres at real size.
+export const BEAM_REACH = 3.5;
+
 // A nest-shaped pile, in metres at real size.
 export const eggSlot = (id, count) => {
   const t = (id + 0.5) / count;
@@ -270,7 +290,26 @@ const newHatchlings = (rng, count, mode) => Array.from({ length: count }, (_, id
   return { id, state: 'egg', birth, lane, speed, wobble, plan, x: 0, y: 0, z: 0, heading: Math.PI, exposed: false, rolled: false, timer: 0, stuckKind: null, gait: 0, rest: 0, strokes: 0, strokesLeft };
 });
 
-const patrolPoint = (kind, index, time, env) => {
+const BODY_RADIUS = { crab: 0.07, raccoon: 0.3 }; // Metres at real size.
+
+// Pure: stops an animal on the ground from entering the box or crossing the tunnel. It stays on the side it came from and can only cross around the mouth.
+const keepClearOfProject = (from, to, env) => {
+  const body = BODY_RADIUS[to.kind] * env.s;
+  const reach = env.s * 0.5 + body;
+  const [boxX, boxZ] = [to.x - env.nest.x, to.z - env.nest.z];
+  const inBox = Math.abs(boxX) < reach && Math.abs(boxZ) < reach;
+  const outOfBox = !inBox ? to
+    : reach - Math.abs(boxX) < reach - Math.abs(boxZ)
+      ? { ...to, x: env.nest.x + (boxX < 0 ? -reach : reach) }
+      : { ...to, z: env.nest.z + (boxZ < 0 ? -reach : reach) };
+  if (outOfBox.z > env.frontZ + body || outOfBox.z < env.mouthZ - body) return outOfBox;
+  const center = env.tunnelX(outOfBox.z);
+  const side = from.x < env.tunnelX(from.z) ? -1 : 1;
+  const clearance = env.tunnelRadius * env.s + body;
+  return { ...outOfBox, x: center + side * Math.max(side * (outOfBox.x - center), clearance) };
+};
+
+const patrolPoint = (kind, index, time, env, mode = 'tunnel') => {
   if (kind === 'crab') {
     const side = index % 2 ? 1 : -1;
     const t = Math.sin(time * 0.25 + index * 1.7) * 0.5 + 0.5;
@@ -278,7 +317,10 @@ const patrolPoint = (kind, index, time, env) => {
     return { x: env.tunnelX(z) + side * (env.s * 0.15 + 1 + 0.4 * Math.sin(time * 0.7 + index)), y: 0, z };
   }
   if (kind === 'raccoon') {
-    const angle = time * 0.3 + index * 2.1;
+    // With the tunnel there, it prowls around the back and sides of the box, because the tunnel blocks a full circle.
+    const angle = mode === 'tunnel'
+      ? Math.PI / 2 + (Math.PI / 2 + 0.45) * Math.sin(time * 0.18 + index * 2.1)
+      : time * 0.3 + index * 2.1;
     const radius = env.s * 0.75 + 1.2;
     return { x: env.nest.x + Math.cos(angle) * radius, y: 0, z: env.nest.z + Math.sin(angle) * radius };
   }
@@ -336,8 +378,8 @@ const stepPredators = (sim, dt, env) => {
   const releases = new Set();
   const byId = new Map(sim.hatchlings.map((h) => [h.id, h]));
 
-  const predators = sim.predators.map((p) => {
-    const patrol = patrolPoint(p.kind, p.index, sim.time, env);
+  const moved = sim.predators.map((p) => {
+    const patrol = patrolPoint(p.kind, p.index, sim.time, env, sim.mode);
     if (p.carrying !== null) {
       const timer = p.timer - dt;
       const moved = moveToward(p, patrol, scaled(SPEED[p.kind], env), dt);
@@ -366,6 +408,7 @@ const stepPredators = (sim, dt, env) => {
     }
     return { ...p, ...moved, y, target: prey.id };
   });
+  const predators = moved.map((p, i) => (sim.mode === 'tunnel' && p.kind !== 'bird' ? keepClearOfProject(sim.predators[i], p, env) : p));
   return { predators, grabs, releases };
 };
 

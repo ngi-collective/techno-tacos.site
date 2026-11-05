@@ -1,16 +1,14 @@
 import * as THREE from 'three';
 import { OBSTACLES, SYSTEM } from './config.js';
+import { createGlow } from './effects.js';
+import { createShoreLights } from './houses.js';
 import { sandUv } from './environment.js';
-import { STAKE_FRACTIONS } from './simulation.js';
+import { BEAM_REACH, beamBrightness, GUIDING_LIGHTS, STAKE_FRACTIONS } from './simulation.js';
 import { sandHeight, tunnelBend, tunnelFloorHeight } from './terrain.js';
 import { createFabricTunnel } from './tunnel.js';
 
 const SEGMENTS = 18;
-// The guiding lights sit at the ocean end of the tunnel, so they lead hatchlings out.
-const LIGHT_POSITIONS = [0.985, 0.94, 0.89];
 const FLOOR_ACROSS = 5;
-const LAMP_XS = [-60, -36, -12, 12, 36, 60];
-const HOUSE_XS = [-78, -54, -30, -8, 14, 36, 58, 80];
 
 const WOOD = new THREE.MeshStandardMaterial({ color: 0xc08a50, roughness: 0.85 });
 const FRAME = new THREE.MeshStandardMaterial({ color: 0x70492a, roughness: 0.9 });
@@ -32,23 +30,6 @@ const canvasTexture = (width, height, draw) => {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   return texture;
-};
-
-const glowTexture = canvasTexture(128, 128, (context) => {
-  const gradient = context.createRadialGradient(64, 64, 2, 64, 64, 64);
-  gradient.addColorStop(0, 'rgba(255,255,255,1)');
-  gradient.addColorStop(0.25, 'rgba(255,255,255,0.45)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 128, 128);
-});
-
-const createGlow = (color, size) => {
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: glowTexture, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, fog: false,
-  }));
-  sprite.scale.setScalar(size);
-  return sprite;
 };
 
 const meshMaterial = () => {
@@ -154,20 +135,43 @@ const updateFloor = (mesh, { x, frontZ, length, s, sand }) => {
   mesh.visible = sand > 0;
 };
 
+// A thin cone that starts at the lamp and fades to nothing, length 1 along +z. Additive light fades by going black.
+const createBeamGeometry = () => {
+  const geometry = new THREE.CylinderGeometry(0.06, 0.014, 1, 12, 6, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
+  const { position } = geometry.attributes;
+  const color = new THREE.Color(SYSTEM.guidingLightColor);
+  const colors = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i += 1) {
+    const left = (1 - position.getZ(i)) ** 1.5;
+    colors.set([color.r * left, color.g * left, color.b * left], i * 3);
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
+};
+
 const createTunnel = ({ pointLights, hoops, around }, sandMaterial) => {
   const { guidingLightColor } = SYSTEM;
   const group = new THREE.Group();
   const fabric = createFabricTunnel({ hoops, around });
   group.add(fabric.group);
 
-  const lampMaterial = new THREE.MeshBasicMaterial({ color: guidingLightColor, toneMapped: false });
-  const lamps = LIGHT_POSITIONS.map((fraction, i) => {
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 8), lampMaterial);
+  // Focused lamps: a lit face toward the box, a dark hood toward the ocean, and a thin visible beam. The local +z axis points along the beam.
+  const lampHood = new THREE.MeshStandardMaterial({ color: 0x23282c, roughness: 0.7 });
+  const beamGeometry = createBeamGeometry();
+  const lamps = GUIDING_LIGHTS.map((fraction, i) => {
+    const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.03, 16).rotateX(Math.PI / 2).translate(0, 0, -0.015), lampHood);
+    const faceMaterial = new THREE.MeshBasicMaterial({ color: guidingLightColor, toneMapped: false });
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.02, 16), faceMaterial);
+    face.position.z = 0.002; // Just in front of the hood's end, so the two surfaces never share a depth.
+    const lamp = new THREE.Group().add(hood, face);
+    const beamMesh = new THREE.Mesh(beamGeometry, new THREE.MeshBasicMaterial({
+      vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false,
+    }));
     const glow = createGlow(guidingLightColor, 1);
-    const point = i < pointLights ? new THREE.PointLight(guidingLightColor, 0, 1, 1.4) : null;
-    group.add(bulb, glow);
-    if (point) group.add(point);
-    return { fraction, bulb, glow, point };
+    const beam = i < pointLights ? new THREE.SpotLight(guidingLightColor, 0, 1, 0.22, 0.6, 1.3) : null;
+    group.add(lamp, beamMesh, glow);
+    if (beam) group.add(beam, beam.target);
+    return { fraction, lamp, faceMaterial, beamMesh, glow, beam };
   });
 
   const floor = createFloor(sandMaterial);
@@ -187,7 +191,7 @@ const createTunnel = ({ pointLights, hoops, around }, sandMaterial) => {
   return { group, fabric, lamps, stakes, floor };
 };
 
-const updateTunnel = (tunnel, { s, frontZ, length, x, sand, stakes, lights, night, fullLength, time, lift }) => {
+const updateTunnel = (tunnel, { s, frontZ, length, x, sand, stakes, lights, night, fullLength, time, lift, viewer }) => {
   const { tunnelRadius: r, tunnelCenterHeight: cy } = SYSTEM;
   const shape = { frontZ, length, s };
   const centerX = (z) => x + tunnelBend(z, shape);
@@ -195,20 +199,43 @@ const updateTunnel = (tunnel, { s, frontZ, length, x, sand, stakes, lights, nigh
   tunnel.fabric.update({ s, frontZ, length, x, time, lift });
   updateFloor(tunnel.floor, { x, frontZ, length, s, sand });
 
-  tunnel.lamps.forEach(({ fraction, bulb, glow, point }) => {
+  tunnel.lamps.forEach(({ fraction, lamp, faceMaterial, beamMesh, glow, beam }) => {
     const z = frontZ - length * fraction;
-    const y = centerY(z) + r * 0.82 * s;
-    bulb.position.set(centerX(z), y, z);
-    bulb.scale.setScalar(s);
-    bulb.visible = lights > 0;
-    glow.position.set(centerX(z), y, z);
-    glow.scale.setScalar(s * 0.3 * (0.6 + night * 0.4));
-    glow.visible = lights > 0;
-    glow.material.opacity = lights * (0.35 + 0.65 * night);
-    if (point) {
-      point.position.set(centerX(z), y, z);
-      point.distance = s * 9;
-      point.intensity = lights * (0.15 + 0.75 * night) * s;
+    const position = { x: centerX(z), y: centerY(z) + r * 0.78 * s, z };
+    const targetZ = Math.min(frontZ, z + BEAM_REACH * s);
+    const target = new THREE.Vector3(centerX(targetZ), sandHeight(centerX(targetZ), targetZ) + 0.02 * s, targetZ);
+    const toTarget = target.clone().sub(new THREE.Vector3(position.x, position.y, z));
+    const reach = toTarget.length();
+    const axis = toTarget.clone().normalize();
+
+    lamp.position.set(position.x, position.y, z);
+    lamp.scale.setScalar(s);
+    lamp.lookAt(target);
+    lamp.visible = lights > 0;
+
+    const seen = beamBrightness(viewer, position, axis);
+    const shine = lights * (0.35 + 0.65 * night);
+    faceMaterial.color.set(SYSTEM.guidingLightColor).multiplyScalar(0.14 + 0.86 * seen);
+
+    beamMesh.position.copy(lamp.position);
+    beamMesh.quaternion.copy(lamp.quaternion);
+    beamMesh.scale.set(s, s, reach);
+    // The thin beam is for people watching from outside. From inside the tunnel it would fill the view.
+    const outside = THREE.MathUtils.clamp((Math.abs(viewer.x - centerX(viewer.z)) - r * s) / (2 * s), 0, 1);
+    const pastEnds = viewer.z > frontZ + s || viewer.z < frontZ - length - s;
+    beamMesh.visible = reach > 0.01 && lights > 0 && (outside > 0 || pastEnds);
+    beamMesh.material.opacity = shine * 0.28 * (pastEnds ? 1 : outside);
+
+    glow.position.set(position.x, position.y, z).addScaledVector(axis, 0.022 * s);
+    glow.scale.setScalar(s * 0.24 * (0.6 + night * 0.4));
+    glow.visible = lights > 0 && seen > 0;
+    glow.material.opacity = shine * seen;
+
+    if (beam) {
+      beam.position.set(position.x, position.y, z);
+      beam.target.position.copy(target);
+      beam.distance = s * 7;
+      beam.intensity = lights * (0.3 + 1.2 * night) * s;
     }
   });
 
@@ -290,49 +317,6 @@ const createObstacles = () => {
   return group;
 };
 
-const houseWindows = () => canvasTexture(256, 256, (context) => {
-  context.fillStyle = '#000';
-  context.fillRect(0, 0, 256, 256);
-  context.fillStyle = '#fff2c8';
-  [[30, 40], [150, 40], [30, 150], [150, 150]].forEach(([x, y]) => context.fillRect(x, y, 76, 66));
-});
-
-// The houses and streetlights behind the dunes that pull hatchlings the wrong way.
-const createShoreLights = () => {
-  const group = new THREE.Group();
-  const emissiveMap = houseWindows();
-  const houseMaterial = new THREE.MeshStandardMaterial({ color: 0xc6b8a6, roughness: 0.8, emissive: 0xffffff, emissiveMap, emissiveIntensity: 0 });
-  const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x6e4238, roughness: 0.8 });
-  HOUSE_XS.forEach((x, i) => {
-    const z = 84 + (i % 3) * 5;
-    const ground = sandHeight(x, z);
-    const house = box(houseMaterial, 15, 10, 9, x, ground + 5, z);
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(11.5, 5, 4), roofMaterial);
-    roof.rotation.y = Math.PI / 4;
-    roof.scale.z = 0.7;
-    roof.position.set(x, ground + 12.5, z);
-    group.add(house, roof);
-  });
-  const glows = LAMP_XS.map((x) => {
-    const z = 76;
-    const ground = sandHeight(x, z);
-    const pole = box(STEEL, 0.25, 7, 0.25, x, ground + 3.5, z);
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff0d0, toneMapped: false }));
-    bulb.position.set(x, ground + 7.2, z);
-    const glow = createGlow(0xffe0a8, 16);
-    glow.position.copy(bulb.position);
-    group.add(pole, bulb, glow);
-    return glow;
-  });
-  const fills = [-20, 20].map((x) => {
-    const light = new THREE.PointLight(0xffdca0, 0, 110, 1.6);
-    light.position.set(x, 18, 72);
-    group.add(light);
-    return light;
-  });
-  return { group, houseMaterial, glows, fills };
-};
-
 // Obstacle meshes are about 2.8 times real size in their own units.
 const OBSTACLE_UNIT = 0.36;
 
@@ -352,7 +336,7 @@ export const createProject = ({ tunnel: tunnelQuality, sandMaterial }) => {
 
   return {
     group,
-    update: ({ s, mode, pose, night, lidOpen, frontZ, fullLength, time }) => {
+    update: ({ s, mode, pose, night, lidOpen, frontZ, fullLength, time, viewer }) => {
       const open = mode === 'open';
       nestBox.group.visible = !open;
       tunnel.group.visible = !open;
@@ -369,12 +353,9 @@ export const createProject = ({ tunnel: tunnelQuality, sandMaterial }) => {
       lightPanel.position.set(nestAt.x, ground + pose.panel.y * s, nestAt.z + pose.panel.z * s);
       lightPanel.rotation.x = pose.panel.tilt;
 
-      updateTunnel(tunnel, { s, frontZ: frontZ - pose.tunnelShift, length: pose.length, x: nestAt.x, sand: pose.sand, stakes: pose.stakes, lights: pose.lights, night, fullLength, time, lift: pose.tunnelLift });
+      updateTunnel(tunnel, { s, frontZ: frontZ - pose.tunnelShift, length: pose.length, x: nestAt.x, sand: pose.sand, stakes: pose.stakes, lights: pose.lights, night, fullLength, time, lift: pose.tunnelLift, viewer });
 
-      const shore = THREE.MathUtils.smoothstep(night, 0.4, 0.9);
-      shoreLights.houseMaterial.emissiveIntensity = shore * 1.4;
-      shoreLights.glows.forEach((glow) => { glow.material.opacity = shore; glow.visible = shore > 0; });
-      shoreLights.fills.forEach((light) => { light.intensity = shore * 160; });
+      shoreLights.update(THREE.MathUtils.smoothstep(night, 0.4, 0.9));
     },
   };
 };

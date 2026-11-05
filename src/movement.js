@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { WORLD } from './config.js';
 import { clampToBeach, sandHeight } from './terrain.js';
+import { lookAfterDrag } from './touch.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const RIDE_NEAR = 0.02;
@@ -39,7 +40,7 @@ const lookAtStart = (camera, from, to) => {
 };
 
 // The camera sits in a rig. Walking moves the rig, so the same code works with a headset's own tracking.
-export const createMovement = ({ camera, renderer, scene, overlay, onFirstGesture }) => {
+export const createMovement = ({ camera, renderer, scene, overlay, onFirstGesture, touch = null }) => {
   const rig = new THREE.Group();
   rig.add(camera);
   camera.position.set(0, WORLD.eyeHeight, 0);
@@ -59,8 +60,15 @@ export const createMovement = ({ camera, renderer, scene, overlay, onFirstGestur
   addEventListener('blur', () => keys.clear());
 
   overlay.addEventListener('click', () => {
+    if (overlay.classList.contains('loading')) return;
     onFirstGesture();
-    controls.lock();
+    // Phones have no pointer lock, so the overlay just goes away.
+    if (touch) overlay.classList.add('hidden');
+    else controls.lock();
+  });
+  touch?.onLook((dx, dy) => {
+    const { yaw, pitch } = lookAfterDrag({ yaw: camera.rotation.y, pitch: camera.rotation.x }, dx, dy);
+    camera.rotation.set(pitch, yaw, 0, 'YXZ');
   });
   controls.addEventListener('lock', () => overlay.classList.add('hidden'));
   controls.addEventListener('unlock', () => {
@@ -113,8 +121,8 @@ export const createMovement = ({ camera, renderer, scene, overlay, onFirstGestur
     update: (dt) => {
       if (riding) return;
       const presenting = renderer.xr.isPresenting;
-      if (!presenting && !controls.isLocked) return;
-      const input = presenting ? thumbstickInput(renderer.xr.getSession()) : keyboardInput(keys);
+      if (!presenting && !touch && !controls.isLocked) return;
+      const input = presenting ? thumbstickInput(renderer.xr.getSession()) : touch?.input() ?? keyboardInput(keys);
       if (!input.forward && !input.strafe) return;
       (presenting ? renderer.xr.getCamera() : camera).getWorldDirection(look);
       look.setY(0).normalize();

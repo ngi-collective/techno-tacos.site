@@ -20,7 +20,7 @@ The website is a demo and a starting point. The team watches on a TV.
 
 - Build with three.js. A sample three.js project is in sample_project with plain ES modules: `index.html` with an import map, code in `src/`. No bundler.
 - `sample_project/` is a tested working beach. Copy its `index.html` and `src/` to the project root and build there, leaving the sample intact. Asset and three.js paths are absolute, so they keep working, and the sample stays in place because the build loads its `assets/` and `node_modules/`. `src/main.js` shows where the project and pictures go, and `src/config.js` holds the values worth tuning.
-- The adult runs `npm run serve` from `sample_project/`, and the build appears at `https://localhost:8443/`. Alert the adult to reload the browser when they need to.
+- The adult runs `npm run serve` from `sample_project/`, and the build appears at `http://localhost:8080/`. Alert the adult to reload the browser when they need to.
 - After editing code, run `node --check` on each changed file.
 
 ## Team project

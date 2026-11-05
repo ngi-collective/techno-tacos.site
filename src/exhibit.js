@@ -33,7 +33,7 @@ const post = (x, z, height) => {
   return mesh;
 };
 
-// Give either imageUrl (for example '/team_data/diagrams.png') or label: an array of text lines.
+// Give either imageUrl (for example 'team_data/diagrams.png') or label: an array of text lines.
 export const createSign = ({ x, z, faceY = 0, imageUrl, label = ['Team picture', 'goes here'], fontSize = 72, width = 5.2, height = 3.25 }) => {
   const texture = imageUrl ? new THREE.TextureLoader().load(imageUrl) : labelTexture(label, fontSize);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -54,6 +54,24 @@ export const createSign = ({ x, z, faceY = 0, imageUrl, label = ['Team picture',
     post(x + offset.x + back.x, z + offset.z + back.z, 1.1 + height),
     post(x - offset.x + back.x, z - offset.z + back.z, 1.1 + height),
   );
+};
+
+// A small sign on one post, for people exploring up close. Its origin is the foot of the post, so it can be moved.
+export const createPicket = ({ label, fontSize = 80, width = 0.95, height = 0.6, postHeight = 1.25, faceY = 0 }) => {
+  const texture = labelTexture(label, fontSize);
+  texture.anisotropy = 8;
+  const face = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, toneMapped: false }),
+  );
+  face.name = 'signFace';
+  // The face sits in front of the post, so the post doesn't cover the words.
+  face.position.set(Math.sin(faceY) * 0.06, postHeight - height / 2 + 0.05, Math.cos(faceY) * 0.06);
+  face.rotation.y = faceY;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, postHeight), POST);
+  pole.position.y = postHeight / 2;
+  pole.castShadow = true;
+  return new THREE.Group().add(pole, face);
 };
 
 // A sign whose text changes. `setLines` redraws only when the lines differ.

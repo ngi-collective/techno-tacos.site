@@ -1,18 +1,25 @@
 // Everything worth tuning live is here. The Quest profile is a starting guess: it is untested on a headset.
 export const QUALITY = {
   desktop: { waterTexture: 1024, shadowMap: 2048, maxPixelRatio: 2, hatchlings: 36, stars: 1500, tunnelPointLights: 3, tunnelHoops: 30, tunnelAround: 28, sandDetail: [640, 300], tracks: 500, puffs: 200, shells: 350, seaweed: 200, grass: 500 },
+  // A starting guess for phones and tablets. The frame loop also lowers the resolution if frames run slow.
+  mobile: { waterTexture: 256, shadowMap: 1024, maxPixelRatio: 1.5, hatchlings: 20, stars: 600, tunnelPointLights: 1, tunnelHoops: 20, tunnelAround: 20, sandDetail: [400, 160], tracks: 150, puffs: 60, shells: 120, seaweed: 70, grass: 180 },
   quest: { waterTexture: 256, shadowMap: 1024, maxPixelRatio: 1, hatchlings: 14, stars: 400, tunnelPointLights: 1, tunnelHoops: 14, tunnelAround: 18, sandDetail: [320, 120], tracks: 100, puffs: 50, shells: 80, seaweed: 50, grass: 120 },
 };
 
-export const pickQuality = (userAgent) => (/OculusBrowser|Quest/i.test(userAgent) ? QUALITY.quest : QUALITY.desktop);
+export const isHeadset = (userAgent) => /OculusBrowser|Quest/i.test(userAgent);
+
+export const pickQuality = (userAgent, touch) => {
+  if (isHeadset(userAgent)) return QUALITY.quest;
+  return touch ? QUALITY.mobile : QUALITY.desktop;
+};
 
 export const LOOK = {
   exposure: 0.34,
   nightExposure: 0.8,
   sunElevation: 38,
   sunAzimuth: 52, // Degrees right of straight ahead, which keeps the sun out of the middle of the view.
-  moonElevation: 24,
-  moonAzimuth: -28,
+  moonElevation: 14,
+  moonAzimuth: -18, // Over the ocean, nearly opposite the houses behind the dunes.
   waterColor: 0x0b4a5c,
   fogColor: 0xc9d8e2,
   fogDensity: 0.00016,
@@ -20,7 +27,7 @@ export const LOOK = {
 
 export const WORLD = {
   start: { x: 15, z: 23 },
-  lookAt: { x: 3, z: 18 },
+  lookAt: { x: 3, z: 14.6 },
   walkSpeed: 7,
   runSpeed: 16,
   eyeHeight: 1.6,

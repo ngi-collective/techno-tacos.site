@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createSim, hatchingStart, pickRider, setMode, setupPose, SETUP_STEPS, stakeWalk, stepWorld, strokePush, timeline } from '../src/simulation.js';
-import { sandHeight, tunnelBend, tunnelFloorHeight } from '../src/terrain.js';
+import { BEAM_REACH, beamBrightness, createSim, GUIDING_LIGHTS, hatchingStart, pickRider, setMode, setupPose, SETUP_STEPS, stakeWalk, stepWorld, strokePush, timeline } from '../src/simulation.js';
+import { sandHeight, shoreZ, tunnelBend, tunnelFloorHeight } from '../src/terrain.js';
 
 const TIMING = { setupStepSeconds: [7, 8, 8, 10, 10, 14, 6], sunsetSeconds: 14 };
 const env = {
   s: 3, nest: { x: 0, z: 24 }, waterZ: 2.5, mouthZ: 3.5, frontZ: 22.5,
   obstacles: [{ kind: 'hole', x: -6, z: 35, radius: 0.4 }, { kind: 'chair', x: 10, z: 35, radius: 0.35 }],
+  tunnelRadius: 0.15,
   tunnelX: (z) => tunnelBend(z, { frontZ: 22.5, length: 19, s: 3 }),
 };
 const predators = { crab: 4, raccoon: 1, bird: 2 };
@@ -214,4 +215,134 @@ test('volunteers keep walking away during the sunset', () => {
   assert.equal(timeline(hatchingStart(TIMING), TIMING).units, 8);
   const [at7, at8] = [7, 8].map((u) => setupPose(u, setupArgs).volunteers[0]);
   assert.ok(Math.hypot(at8.x - at7.x, at8.z - at7.z) > 5);
+});
+
+test('a line of dunes stands between the beach and the houses', () => {
+  for (const x of [-86, -40, -17, 6, 29, 77]) {
+    const heights = Array.from({ length: 40 }, (_, i) => sandHeight(x, 70 + i));
+    const crest = Math.max(...heights);
+    assert.ok(crest - sandHeight(x, shoreZ(x) + 45) > 4, `x ${x} rises from the beach`);
+    assert.ok(crest - sandHeight(x, 110) > 1, `x ${x} falls toward the houses`);
+  }
+});
+
+test('the dunes leave the tunnel and the lost hatchlings path alone', () => {
+  const noDune = (z) => 2.6 + 0.05 * (z - 2.52 - 18);
+  assert.ok(Math.abs(sandHeight(0, 54) - noDune(54)) < 0.5);
+});
+
+const assertAnimalsClear = (sim, testEnv) => {
+  sim.predators.filter((p) => p.kind !== 'bird').forEach((p) => {
+    const inTunnelRange = p.z < testEnv.frontZ && p.z > testEnv.mouthZ;
+    if (inTunnelRange) {
+      assert.ok(Math.abs(p.x - testEnv.tunnelX(p.z)) >= testEnv.tunnelRadius * testEnv.s, `${p.id} in the tunnel at ${p.x}, ${p.z}`);
+    }
+    const half = testEnv.s * 0.5;
+    const inBox = Math.abs(p.x - testEnv.nest.x) < half && Math.abs(p.z - testEnv.nest.z) < half;
+    assert.ok(!inBox, `${p.id} in the box at ${p.x}, ${p.z}`);
+  });
+};
+
+test('raccoons and crabs never enter the tunnel or the box, at either size', () => {
+  [1, 3].forEach((s) => {
+    const frontZ = 24 - s / 2;
+    const sized = { ...env, s, frontZ, tunnelX: (z) => tunnelBend(z, { frontZ, length: frontZ - env.mouthZ, s }) };
+    let sim = createSim({ count: 36, predators, env: sized });
+    for (let i = 0; i < 30 * 300; i += 1) {
+      sim = stepWorld(sim, 1 / 30, sized);
+      assertAnimalsClear(sim, sized);
+    }
+  });
+});
+
+test('the raccoon never crosses from one side of the tunnel to the other along its length', () => {
+  let sim = newSim();
+  let side = null;
+  let crossings = 0;
+  for (let i = 0; i < 30 * 300; i += 1) {
+    sim = stepWorld(sim, 1 / 30, env);
+    const raccoon = sim.predators.find((p) => p.kind === 'raccoon');
+    if (raccoon.z < env.frontZ && raccoon.z > env.mouthZ) {
+      const now = Math.sign(raccoon.x - env.tunnelX(raccoon.z));
+      if (side !== null && now !== side) crossings += 1;
+      side = now;
+    } else {
+      side = null; // It may walk around the back of the box to the other side. That is not a crossing.
+    }
+  }
+  assert.equal(crossings, 0);
+});
+
+test('turning the tunnel back on pushes animals out of its path', () => {
+  let sim = setMode(newSim(), 'open');
+  for (let i = 0; i < 30 * 40; i += 1) sim = stepWorld(sim, 1 / 30, env);
+  sim = setMode(sim, 'tunnel');
+  sim = stepWorld(sim, 1 / 30, env);
+  assertAnimalsClear(sim, env);
+});
+
+test('without the tunnel, the raccoon can still walk where the tunnel would be', () => {
+  let sim = setMode(newSim(), 'open');
+  let crossed = false;
+  let side = null;
+  for (let i = 0; i < 30 * 200; i += 1) {
+    sim = stepWorld(sim, 1 / 30, env);
+    const raccoon = sim.predators.find((p) => p.kind === 'raccoon');
+    const now = Math.sign(raccoon.x - env.tunnelX(raccoon.z));
+    if (side !== null && now !== side) crossed = true;
+    side = now;
+  }
+  assert.ok(crossed);
+});
+
+test('a hatchling always has a guiding light ahead of it, all the way to the end', () => {
+  const sorted = [...GUIDING_LIGHTS].sort((a, b) => a - b);
+  assert.ok(sorted[0] < 0.2, 'one near the box');
+  assert.ok(sorted[sorted.length - 1] > 0.95, 'one at the ocean end');
+  sorted.slice(1).forEach((fraction, i) => assert.ok(fraction - sorted[i] < 0.2, `gap before ${fraction}`));
+});
+
+// A straight, flat tunnel for checking what a hatchling can see. The lamp's beam reaches the floor toward the box (+z).
+const lampLayout = (s) => {
+  const [frontZ, mouthZ] = [23.5, 3.5];
+  const lampHeight = (0.075 + 0.15 * 0.78) * s;
+  return {
+    frontZ, mouthZ,
+    lamps: GUIDING_LIGHTS.map((fraction) => {
+      const lamp = { x: 0, y: lampHeight, z: frontZ - (frontZ - mouthZ) * fraction };
+      const [run, drop] = [Math.min(frontZ - lamp.z, BEAM_REACH * s), lampHeight];
+      const gap = Math.hypot(run, drop);
+      return { lamp, axis: { x: 0, y: -drop / gap, z: run / gap } };
+    }),
+  };
+};
+
+const hatchlingEye = (s, z) => ({ x: 0, y: 0.015 * s, z });
+
+test('a lamp is bright from far away, then disappears as a hatchling gets close', () => {
+  [1, 3].forEach((s) => {
+    const { lamps } = lampLayout(s);
+    const { lamp, axis } = lamps[0];
+    const seenFrom = (distance) => beamBrightness(hatchlingEye(s, lamp.z + distance), lamp, axis);
+    assert.ok(seenFrom(BEAM_REACH * s) > 0.9, 'bright where the beam lands');
+    assert.ok(seenFrom(BEAM_REACH * s * 3) > 0.5, 'still bright farther back');
+    assert.equal(seenFrom(0.4 * s), 0, 'gone when close');
+    assert.equal(seenFrom(-0.5 * s), 0, 'gone after passing');
+  });
+});
+
+test('a lamp is dark from outside its narrow beam', () => {
+  const { lamp, axis } = lampLayout(3).lamps[0];
+  assert.equal(beamBrightness({ x: 15, y: 1.6, z: lamp.z + 6 }, lamp, axis), 0);
+});
+
+test('as one lamp disappears, the next one ahead is still bright, until the last', () => {
+  [1, 3].forEach((s) => {
+    const { lamps, frontZ } = lampLayout(s);
+    const lastZ = Math.min(...lamps.map(({ lamp }) => lamp.z));
+    for (let z = frontZ - 1; z > lastZ + 1.3 * s; z -= 0.1) {
+      const brightest = Math.max(...lamps.filter(({ lamp }) => lamp.z < z).map(({ lamp, axis }) => beamBrightness(hatchlingEye(s, z), lamp, axis)));
+      assert.ok(brightest > 0.5, `s ${s}: only ${brightest.toFixed(2)} at z ${z.toFixed(1)}`);
+    }
+  });
 });

@@ -27,11 +27,12 @@ export const boardLines = (counts) => [
 
 const setText = (element, text) => { if (element.textContent !== text) element.textContent = text; };
 
-export const createHud = (root) => {
+export const createHud = (root, { touch = false } = {}) => {
   const caption = root.getElementById('caption');
   const message = root.getElementById('message');
   const score = root.getElementById('score');
-  root.getElementById('keys').innerHTML = KEYS.map(([key, label]) => `<b>${key}</b> ${label}`).join(' &nbsp; ') + ' &nbsp; <span id="speed"></span>';
+  // On a touch screen the buttons replace this list, and they hold the speed readout.
+  if (!touch) root.getElementById('keys').innerHTML = KEYS.map(([key, label]) => `<b>${key}</b> ${label}`).join(' &nbsp; ') + ' &nbsp; <span id="speed"></span>';
 
   const speed = root.getElementById('speed');
   let lastScore = '';

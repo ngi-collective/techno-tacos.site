@@ -2,12 +2,12 @@
 
 ## 5-minute check, before the kids arrive
 
-1. Open this folder in VS Code and run `npm run serve` in one integrated terminal. Note the Quest address it prints.
-2. Open `https://localhost:8443/sample_project/` on the Mac and accept the certificate warning. You should see the starting beach.
+1. Open this folder in VS Code and run `npm run serve` in one integrated terminal.
+2. Open `http://localhost:8080/sample_project/` on the Mac. You should see the starting beach.
 3. Run `claude` in a second integrated terminal and accept the folder trust prompt.
 4. Click into `transcript.md` and press `⌥⌘V`. Accept the mic prompt, wait for the model download, say a sentence, then press `Escape`. Check that the text landed with correct spacing.
 5. Send `Reply with one line: Summary: Testing the speaker.` to Claude. You should hear it spoken.
-6. Quest, if using: open the printed address with `sample_project/` on the end, dismiss the warning, and press Enter VR. Then clear `transcript.md`.
+6. Quest, if using: open `https://techno-tacos.site/` and press Enter VR, since VR needs HTTPS. Then clear `transcript.md`.
 
 If a step fails, drop that part:
 - Dictation: use macOS Dictation or type what the kids say.

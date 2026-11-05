@@ -1,19 +1,22 @@
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
-import { LOOK, OBSTACLES, PREDATORS, SPEEDS, SYSTEM, TIMING, WORLD, pickQuality } from './config.js';
+import { LOOK, OBSTACLES, PREDATORS, SPEEDS, SYSTEM, TIMING, WORLD, isHeadset, pickQuality } from './config.js';
 import { createCreatures } from './creatures.js';
 import { createDayCycle } from './daycycle.js';
 import { createDecor } from './decor.js';
 import { createFoam, createSand, createSandMaterial, createSky, createWater, skyDirection } from './environment.js';
-import { createBoard, createSign, dimSigns } from './exhibit.js';
+import { createBoard, createPicket, createSign, dimSigns } from './exhibit.js';
 import { boardLines, captionFor, createHud } from './hud.js';
 import { loadModels } from './models.js';
 import { createMovement } from './movement.js';
 import { createProject } from './project.js';
 import { createSim, hatchingStart, pickRider, setMode, setupPose, stepWorld, timeline } from './simulation.js';
-import { tunnelBend, waterlineZ } from './terrain.js';
+import { sandHeight, tunnelBend, waterlineZ } from './terrain.js';
+import { createTouchControls, fovForAspect, nextPixelRatio } from './touch.js';
 
-const quality = pickQuality(navigator.userAgent);
+const touchScreen = !isHeadset(navigator.userAgent) && matchMedia('(hover: none) and (pointer: coarse)').matches;
+const quality = pickQuality(navigator.userAgent, touchScreen);
+document.body.classList.toggle('touch', touchScreen);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, quality.maxPixelRatio));
@@ -23,11 +26,12 @@ renderer.toneMappingExposure = LOOK.exposure;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.xr.enabled = true;
-document.body.append(renderer.domElement, VRButton.createButton(renderer, { optionalFeatures: ['local-floor', 'hand-tracking'] }));
+document.body.append(renderer.domElement);
+if (!touchScreen) document.body.append(VRButton.createButton(renderer, { optionalFeatures: ['local-floor', 'hand-tracking'] }));
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(LOOK.fogColor, LOOK.fogDensity);
-const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 9000);
+const camera = new THREE.PerspectiveCamera(fovForAspect(innerWidth / innerHeight), innerWidth / innerHeight, 0.1, 9000);
 
 const sun = skyDirection(LOOK.sunElevation, LOOK.sunAzimuth);
 const { sky, environment } = createSky(renderer, sun);
@@ -56,21 +60,26 @@ scene.add(project.group);
 const signs = new THREE.Group();
 signs.add(
   createSign({ x: -12, z: 39, faceY: 1.0, label: ['TECHNO TACOS', 'Turtle Tunnel', 'Laurel Park Elementary'], fontSize: 92, width: 5.6, height: 3.5 }),
-  createSign({ x: -15, z: 31, faceY: 1.15, imageUrl: '/team_data/diagrams.png', width: 7.2, height: 5.9 }),
-  createSign({ x: -16, z: 21, faceY: 1.15, imageUrl: '/team_data/project/one_pager.png', width: 4.4, height: 5.7 }),
+  createSign({ x: -15, z: 31, faceY: 1.15, imageUrl: 'team_data/diagrams.png', width: 7.2, height: 5.9 }),
+  createSign({ x: -16, z: 21, faceY: 1.15, imageUrl: 'team_data/project/one_pager.png', width: 4.4, height: 5.7 }),
 );
-const tunnelSigns = new THREE.Group().add(
-  createSign({ x: -7, z: 13, faceY: 1.0, label: ['Guiding light color', 'not confirmed yet:', 'we asked', 'Turtle Beach Rehab'], fontSize: 76, width: 4.2, height: 2.6 }),
-  createSign({ x: -3, z: 10, faceY: 0.8, label: ['Tunnel mouth risk:', 'we asked', 'Turtle Beach Rehab'], fontSize: 80, width: 4.2, height: 2.6 }),
-);
+const tunnelSigns = new THREE.Group();
 const sizeLines = ['Placeholder sizes:', 'hatchling 5 cm, tunnel 30 cm,', 'box 1 m'];
-const bigSign = createSign({ x: -9, z: 25, faceY: 1.15, label: ['Bigger than real life', ...sizeLines], fontSize: 62, width: 4.6, height: 2.9 });
-const realSign = createSign({ x: -9, z: 25, faceY: 1.15, label: ['Real size', ...sizeLines], fontSize: 62, width: 4.6, height: 2.9 });
+const bigSign = createPicket({ label: ['Bigger than real life', ...sizeLines], fontSize: 62, width: 1.1, height: 0.7, faceY: 1.7 });
+const realSign = createPicket({ label: ['Real size', ...sizeLines], fontSize: 62, width: 1.1, height: 0.7, faceY: 1.7 });
 const scoreboard = createBoard({ x: -13, z: 16, faceY: 1.0, fontSize: 52, width: 5, height: 3.1 });
-const thanks = createSign({
-  x: -19, z: 39, faceY: 1.0, fontSize: 44, width: 5, height: 3.1,
-  label: ['Thanks to', 'Poly by Google: turtle, seagull (CC-BY 3.0)', 'Quaternius: raccoon, people (CC0)', 'Poly Haven: sand (CC0)'],
+const thanks = createPicket({
+  faceY: 1.97, fontSize: 44, width: 1.25, height: 0.8,
+  label: ['Thanks to', 'Poly by Google: turtle, seagull (CC-BY 3.0)', 'Quaternius: raccoon, people (CC0)', 'Poly Haven: sand (CC0)', 'NASA: moon'],
 });
+thanks.position.set(-9, sandHeight(-9, 33), 33);
+
+const lightPicket = createPicket({ label: ['Guiding light color', 'not confirmed yet:', 'we asked', 'Turtle Beach Rehab'], fontSize: 76, width: 1.1, height: 0.7, faceY: 1.0 });
+tunnelSigns.add(lightPicket);
+
+// Stands beside the tunnel's mouth and moves with it as the tide changes.
+const mouthPicket = createPicket({ label: ['Tunnel mouth still', 'a risk for hatchlings, but', 'much less than before'], faceY: 0.67 });
+tunnelSigns.add(mouthPicket);
 signs.add(tunnelSigns, bigSign, realSign, scoreboard.group, thanks);
 scene.add(signs);
 
@@ -81,28 +90,40 @@ waves.position.set(0, 1, 0);
 waves.setRefDistance(35);
 waves.setLoop(true);
 scene.add(waves);
-new THREE.AudioLoader().load('/sample_project/assets/waves.wav', (buffer) => waves.setBuffer(buffer));
+new THREE.AudioLoader().load('sample_project/assets/waves.wav', (buffer) => {
+  waves.setBuffer(buffer);
+  // On a slow connection the first tap can come before the sound arrives.
+  if (started) waves.play();
+});
 
 // The story clock starts at the first click, so nobody misses the setup.
 let started = false;
 const firstGesture = () => {
-  if (!started) hud.showMessage('This is real size. Press B to make everything bigger.', view.time, 8);
+  if (!started) hud.showMessage(touchScreen ? 'This is real size. Tap Size to make everything bigger.' : 'This is real size. Press B to make everything bigger.', view.time, 8);
   started = true;
   listener.context.resume();
   if (waves.buffer && !waves.isPlaying) waves.play();
 };
 
+const overlay = document.getElementById('start');
+const touch = touchScreen
+  ? createTouchControls({ root: document.getElementById('touch'), surface: renderer.domElement, onButton: (code) => ACTIONS[code]?.() })
+  : null;
+if (touch) document.getElementById('prompt').textContent = 'Tap to start. Use the stick to walk and drag to look around.';
+
 const movement = createMovement({
-  camera, renderer, scene, overlay: document.getElementById('start'), onFirstGesture: firstGesture,
+  camera, renderer, scene, overlay, onFirstGesture: firstGesture, touch,
 });
 
-const hud = createHud(document);
+const hud = createHud(document, { touch: touchScreen });
 
-addEventListener('resize', () => {
+const fitToWindow = () => {
   camera.aspect = innerWidth / innerHeight;
+  camera.fov = fovForAspect(camera.aspect);
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
-});
+};
+addEventListener('resize', fitToWindow);
 
 const applyDay = createDayCycle({
   scene, renderer, sky, water, foam, sunlight, starCount: quality.stars, onSigns: (value) => dimSigns(signs, value),
@@ -115,7 +136,7 @@ const environmentFor = (s, tide) => {
   const mouthZ = waterZ + mouthGap;
   const frontZ = nest.z - (boxSize / 2) * s;
   const shape = { frontZ, length: frontZ - mouthZ, s };
-  return { s, nest, waterZ, mouthZ, frontZ, tide, obstacles: OBSTACLES, tunnelX: (z) => nest.x + tunnelBend(z, shape) };
+  return { s, nest, waterZ, mouthZ, frontZ, tide, tunnelRadius, obstacles: OBSTACLES, tunnelX: (z) => nest.x + tunnelBend(z, shape) };
 };
 
 // Everything the viewer can change. The frame loop eases the smooth values toward their targets.
@@ -149,7 +170,7 @@ const toggleRide = () => {
   }
   skipSetup();
   movement.startRide();
-  hud.showMessage('You are riding with a hatchling. Press F to get off.', view.time);
+  hud.showMessage(touchScreen ? 'You are riding with a hatchling. Tap Ride to get off.' : 'You are riding with a hatchling. Press F to get off.', view.time);
 };
 
 const changeSpeed = (step) => {
@@ -171,7 +192,7 @@ const ACTIONS = {
   },
   KeyB: () => {
     view.sTarget = view.sTarget === 1 ? bigScale : 1;
-    hud.showMessage(view.sTarget === 1 ? 'Real size, using placeholder measurements.' : 'Bigger than real life, so you can see it on the TV.', view.time);
+    hud.showMessage(view.sTarget === 1 ? 'Using realistic measurements.' : (touchScreen ? 'Bigger than real life, so you can see it on your screen.' : 'Bigger than real life, so you can see it on the TV.'), view.time);
   },
   KeyR: () => {
     if (movement.isRiding()) toggleRide();
@@ -191,6 +212,8 @@ renderer.xr.getController(0).addEventListener('selectstart', toggleTunnel);
 renderer.xr.getController(1).addEventListener('selectstart', toggleRide);
 
 const ease = (value, target, rate, dt) => value + (target - value) * Math.min(1, rate * dt);
+
+const viewerPosition = new THREE.Vector3();
 
 const frame = (dt) => {
   view.time += dt;
@@ -214,7 +237,7 @@ const frame = (dt) => {
 
   if (hatching) sim = stepWorld(sim, simDt, env);
 
-  project.update({ s: view.s, mode: sim.mode, pose, night: moment.night, lidOpen: view.lid, frontZ: env.frontZ, fullLength: env.frontZ - env.mouthZ, time: view.time });
+  project.update({ s: view.s, mode: sim.mode, pose, night: moment.night, lidOpen: view.lid, frontZ: env.frontZ, fullLength: env.frontZ - env.mouthZ, time: view.time, viewer: camera.getWorldPosition(viewerPosition) });
   creatures.update({
     sim: hatching ? sim : { ...sim, cycleTime: 0 },
     s: view.s, tide: view.tide, nest, dt, simDt,
@@ -232,6 +255,17 @@ const frame = (dt) => {
   bigSign.visible = view.sTarget !== 1;
   realSign.visible = view.sTarget === 1;
   tunnelSigns.visible = sim.mode === 'tunnel';
+  const picketX = env.tunnelX(env.mouthZ) + tunnelRadius * view.s + 0.55;
+  const picketZ = env.mouthZ + 0.7;
+  mouthPicket.position.set(picketX, sandHeight(picketX, picketZ), picketZ);
+  const lightZ = (env.frontZ + env.mouthZ) / 2;
+  const lightX = env.tunnelX(lightZ) + tunnelRadius * view.s + 0.55;
+  lightPicket.position.set(lightX, sandHeight(lightX, lightZ), lightZ);
+  const sizeX = nest.x + (boxSize / 2) * view.s + 0.6;
+  const sizeZ = nest.z + (boxSize / 2) * view.s + 1.1;
+  [bigSign, realSign].forEach((sign) => sign.position.set(sizeX, sandHeight(sizeX, sizeZ), sizeZ));
+  // The TV shows the score on screen. A headset cannot, so the sign appears only there.
+  scoreboard.group.visible = renderer.xr.isPresenting;
 
   if (movement.isRiding() && hatching) {
     const rider = pickRider(sim, view.riderId);
@@ -244,10 +278,30 @@ const frame = (dt) => {
   hud.setSpeed(rate);
   hud.tick(view.time);
   scoreboard.setLines(boardLines(sim.counts));
+
+  touch?.setActive('KeyT', sim.mode === 'tunnel');
+  touch?.setActive('KeyH', view.tideTarget !== 0);
+  touch?.setActive('KeyL', view.lidTarget !== 0);
+  touch?.setActive('KeyB', view.sTarget !== 1);
+  touch?.setActive('KeyF', movement.isRiding());
+  touch?.setWalkable(!movement.isRiding());
 };
 
 // Per-frame updates. Add a function here for anything that animates.
-const updates = [water.update, foam.update, movement.update, frame];
+const FRAMES_PER_CHECK = 90;
+let pace = { frames: 0, seconds: 0, skipped: false };
+// Phones vary a lot, so each one finds its own resolution. The first window is skipped because it includes shader compiling.
+const adjustResolution = (dt) => {
+  pace = { ...pace, frames: pace.frames + 1, seconds: pace.seconds + dt };
+  if (pace.frames < FRAMES_PER_CHECK) return;
+  const next = nextPixelRatio(renderer.getPixelRatio(), pace.seconds / pace.frames);
+  if (pace.skipped && next !== renderer.getPixelRatio()) renderer.setPixelRatio(next);
+  pace = { frames: 0, seconds: 0, skipped: true };
+};
+
+const updates = [water.update, foam.update, movement.update, frame, ...(touchScreen ? [adjustResolution] : [])];
+
+overlay.classList.remove('loading');
 
 let previous = 0;
 renderer.setAnimationLoop((time) => {

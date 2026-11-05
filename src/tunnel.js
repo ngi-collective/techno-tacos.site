@@ -4,7 +4,7 @@ import { sandHeight, tunnelBend } from './terrain.js';
 
 const RINGS_PER_HOOP = 5;
 
-// Woven nylon with the team's caution stripe sewn along the top. The stripe is opaque and the rest lets you see in.
+// Woven nylon with the team's caution stripes sewn along both sides. The stripes are opaque and the rest lets you see in.
 const fabricTexture = () => {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 512;
@@ -16,20 +16,24 @@ const fabricTexture = () => {
   for (let i = 0; i < 512; i += 4) context.fillRect(i, 0, 1, 512);
   context.fillStyle = 'rgba(70, 80, 88, 0.07)';
   for (let i = 0; i < 512; i += 4) context.fillRect(0, i, 512, 1);
-  const [left, width] = [512 * 0.41, 512 * 0.18];
-  context.fillStyle = '#f4b90f';
-  context.fillRect(left, 0, width, 512);
-  context.save();
-  context.beginPath();
-  context.rect(left, 0, width, 512);
-  context.clip();
-  context.fillStyle = '#1b1b1b';
-  for (let y = -128; y < 640; y += 128) {
+  // In this map u = 0.25 and 0.75 are the sides at the tube's mid-height, and u = 0.5 is the top. The stripes sit just above mid-height, clear of the sand.
+  const width = 512 * 0.12;
+  [0.28, 0.72].forEach((center) => {
+    const left = 512 * center - width / 2;
+    context.fillStyle = '#f4b90f';
+    context.fillRect(left, 0, width, 512);
+    context.save();
     context.beginPath();
-    context.moveTo(left, y); context.lineTo(left + width, y - 90); context.lineTo(left + width, y - 26); context.lineTo(left, y + 64);
-    context.fill();
-  }
-  context.restore();
+    context.rect(left, 0, width, 512);
+    context.clip();
+    context.fillStyle = '#1b1b1b';
+    for (let y = -128; y < 640; y += 128) {
+      context.beginPath();
+      context.moveTo(left, y); context.lineTo(left + width, y - 90); context.lineTo(left + width, y - 26); context.lineTo(left, y + 64);
+      context.fill();
+    }
+    context.restore();
+  });
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
@@ -76,6 +80,17 @@ export const createFabricTunnel = ({ hoops, around }) => {
     emissive: 0xffffff, emissiveIntensity: 0.03,
   }));
   fabric.frustumCulled = false;
+  // The outside keeps bright caution colors for people. From inside (back faces), the opaque stripes are a low-contrast gray-tan for hatchlings.
+  // three.js draws a see-through two-sided surface in two passes, and FLIP_SIDED marks the pass for the inside. gl_FrontFacing cannot tell them apart.
+  fabric.material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      #ifdef FLIP_SIDED
+        if (diffuseColor.a > 0.8) {
+          float shade = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+          diffuseColor.rgb = mix(vec3(0.33, 0.30, 0.26), vec3(shade) * vec3(1.0, 0.95, 0.86), 0.16);
+        }
+      #endif`);
+  };
 
   const wire = new THREE.MeshStandardMaterial({ color: 0x69747c, roughness: 0.6 });
   const hoopGeometry = new THREE.TorusGeometry(SYSTEM.tunnelRadius, 0.0032, 6, 40);
@@ -122,7 +137,7 @@ export const createFabricTunnel = ({ hoops, around }) => {
         const between = Math.sin((Math.PI * (ring % RINGS_PER_HOOP)) / RINGS_PER_HOOP);
         const size = lerpList(sizes, ring);
         for (let j = 0; j <= around; j += 1) {
-          // Angle 0 is the bottom of the tube, so u = 0.5 and the stripe are on top.
+          // u = 0 is the bottom of the tube, and u = 0.5 is the top.
           const angle = (j / around) * Math.PI * 2 - Math.PI / 2;
           const [cos, sin] = [Math.cos(angle), Math.sin(angle)];
           const ripple = Math.sin(ring * 0.9 + time * 2.1 + angle * 3) * 0.03 + Math.sin(ring * 2.3 - time * 1.3 + angle * 5) * 0.012 * slack;

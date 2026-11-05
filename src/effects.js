@@ -2,6 +2,32 @@ import * as THREE from 'three';
 
 const dummy = new THREE.Object3D();
 
+const glowTexture = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const context = canvas.getContext('2d');
+  const gradient = context.createRadialGradient(64, 64, 2, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.25, 'rgba(255,255,255,0.45)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+};
+
+let sharedGlow = null;
+
+export const createGlow = (color, size) => {
+  sharedGlow ??= glowTexture();
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: sharedGlow, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, fog: false,
+  }));
+  sprite.scale.setScalar(size);
+  return sprite;
+};
+
 const TRACK_SECONDS = 22;
 const PUFF_SECONDS = 0.8;
 

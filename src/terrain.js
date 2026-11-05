@@ -6,14 +6,22 @@ const smoothstep = (min, max, value) => {
 
 export const shoreZ = (x) => 8 * Math.sin(x / 70) + 3 * Math.sin(x / 23 + 1);
 
+// A line of sand dunes between the beach and the houses. It wanders and changes height, as real dunes do.
+const duneRidge = (x, fromShore) => {
+  const wander = 5 * Math.sin(x / 47) + 2 * Math.sin(x / 17 + 2);
+  const along = fromShore - wander;
+  const height = 5 + 1 * Math.sin(x / 31) + 0.6 * Math.sin(x / 13 + 1);
+  return height * smoothstep(60, 80, along) * (1 - smoothstep(84, 100, along));
+};
+
 export const sandHeight = (x, z) => {
   const fromShore = z - shoreZ(x);
   const slope = fromShore < 0 ? fromShore * 0.1 : 2.6 * smoothstep(0, 18, fromShore) + Math.max(0, fromShore - 18) * 0.05;
-  const dunes = smoothstep(70, 170, fromShore) * (7 + 3 * Math.sin(x / 37) * Math.cos(z / 29));
+  const dunes = smoothstep(115, 200, fromShore) * (7 + 3 * Math.sin(x / 37) * Math.cos(z / 29));
   // The sand is smooth along the tunnel's path, so the tunnel never pokes through a ripple.
   const ripples = smoothstep(4, 20, fromShore) * smoothstep(8, 14, Math.abs(x)) * 0.07 * Math.sin(x / 3.1 + z / 4.3);
   const sidesDrop = Math.max(0, Math.abs(x) - 380) * 0.09;
-  return Math.max(-4, slope + dunes + ripples - sidesDrop);
+  return Math.max(-4, slope + dunes + ripples + duneRidge(x, fromShore) - sidesDrop);
 };
 
 // The z where the sand meets water at a given water height. The sand rises with z near the shore, so bisection finds it.

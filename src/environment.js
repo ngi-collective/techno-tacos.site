@@ -34,7 +34,7 @@ export const createSky = (renderer, sun) => {
 };
 
 export const createWater = (sun, textureSize) => {
-  const normals = new THREE.TextureLoader().load('/sample_project/assets/waternormals.jpg', (texture) => {
+  const normals = new THREE.TextureLoader().load('sample_project/assets/waternormals.jpg', (texture) => {
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   });
   const water = new Water(new THREE.PlaneGeometry(9000, 9000), {
@@ -69,8 +69,8 @@ const loadSandTexture = (url, isColor) => {
 export const createSandMaterial = ({ highTide }) => {
   const uniforms = { uWaterLevel: { value: 0 }, uTideLine: { value: highTide + 0.22 } };
   const material = new THREE.MeshStandardMaterial({
-    map: loadSandTexture('/assets/textures/sand_diff.jpg', true),
-    normalMap: loadSandTexture('/assets/textures/sand_nor.jpg', false),
+    map: loadSandTexture('assets/textures/sand_diff.jpg', true),
+    normalMap: loadSandTexture('assets/textures/sand_nor.jpg', false),
     normalScale: new THREE.Vector2(0.9, 0.9),
     roughness: 1,
   });

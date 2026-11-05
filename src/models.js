@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader = new GLTFLoader();
-const load = (name) => loader.loadAsync(`/assets/models/${name}.glb`);
+const load = (name) => loader.loadAsync(`assets/models/${name}.glb`);
 
 const colored = (mesh) => {
   const geometry = (mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone()).applyMatrix4(mesh.matrixWorld);

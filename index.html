@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Turtle Tunnel</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #10202c; overflow: hidden; }
+  canvas { display: block; }
+  #start {
+    position: fixed; inset: 0; display: grid; place-content: center; text-align: center; cursor: pointer;
+    color: #fff; font-family: system-ui, sans-serif; background: rgba(8, 24, 36, 0.35);
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  }
+  #start.hidden { display: none; }
+  #start.loading { cursor: progress; }
+  #start.loading #prompt { display: none; }
+  #start:not(.loading) #loading { display: none; }
+  #start h1 { margin: 0 0 12px; font-size: clamp(32px, 6vw, 72px); }
+  #start h2 { margin: 0 0 18px; font-size: clamp(20px, 3vw, 36px); font-weight: 500; }
+  #start p { margin: 0; font-size: clamp(16px, 2.2vw, 26px); }
+  .hud {
+    position: fixed; color: #fff; font-family: system-ui, sans-serif; pointer-events: none;
+    background: rgba(6, 18, 28, 0.62); border-radius: 10px; padding: 10px 16px;
+  }
+  .hud:empty { display: none; }
+  #caption { top: 18px; left: 50%; transform: translateX(-50%); font-size: clamp(16px, 2vw, 30px); font-weight: 600; text-align: center; width: max-content; max-width: 42vw; }
+  #message { top: 118px; left: 50%; transform: translateX(-50%); font-size: clamp(15px, 1.7vw, 22px); text-align: center; max-width: 70vw; }
+  #score { top: 18px; left: 18px; font-size: clamp(13px, 1.3vw, 18px); }
+  #score table { border-collapse: collapse; }
+  #score th, #score td { padding: 2px 10px; text-align: right; }
+  #score th:first-child, #score td:first-child { text-align: left; }
+  #score small { display: block; margin-top: 6px; opacity: 0.8; }
+  #keys { bottom: 66px; left: 50%; transform: translateX(-50%); font-size: clamp(12px, 1.25vw, 18px); white-space: nowrap; }
+  #keys b { color: #ffc861; }
+
+  /* Phones and tablets. main.js adds the touch class. */
+  #touch { display: none; }
+  body.touch { position: fixed; inset: 0; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  body.touch canvas { position: fixed; inset: 0; touch-action: none; }
+  body.touch #keys { display: none; }
+  body.touch #start { z-index: 10; padding: 16px; }
+  body.touch #start.hidden ~ #touch { display: block; }
+  body.touch #top {
+    position: fixed; z-index: 2; left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top));
+    display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none;
+  }
+  body.touch .hud { position: static; transform: none; border-radius: 8px; padding: 6px 10px; }
+  body.touch #caption { transform: none; width: auto; max-width: 100%; font-size: 15px; }
+  body.touch #message { transform: none; max-width: 100%; font-size: 14px; }
+  body.touch #score { font-size: 12px; order: 1; }
+  body.touch #score th, body.touch #score td { padding: 1px 6px; }
+  body.touch #score small { margin-top: 2px; font-size: 10px; text-align: center; }
+  #stick {
+    position: fixed; z-index: 3; left: max(20px, env(safe-area-inset-left)); bottom: calc(150px + env(safe-area-inset-bottom));
+    width: 120px; height: 120px; border-radius: 50%; touch-action: none;
+    background: rgba(6, 18, 28, 0.42); border: 2px solid rgba(255, 255, 255, 0.45); box-sizing: border-box;
+  }
+  #stick.off { display: none; }
+  #knob {
+    position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.72); pointer-events: none;
+  }
+  #buttons {
+    position: fixed; z-index: 3; left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); bottom: max(8px, env(safe-area-inset-bottom));
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; max-width: 560px; margin-left: auto;
+  }
+  #buttons button, body.touch #speed {
+    min-height: 56px; min-width: 0; padding: 0 2px; border-radius: 10px; font: 600 13px system-ui, sans-serif; color: #fff;
+    background: rgba(6, 18, 28, 0.68); border: 1px solid rgba(255, 255, 255, 0.28); box-sizing: border-box;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  #buttons button:active { background: rgba(255, 200, 97, 0.55); }
+  #buttons button.active { color: #10202c; background: #ffc861; }
+  body.touch #speed { display: grid; place-content: center; text-align: center; font-weight: 500; font-size: 12px; }
+  @media (orientation: landscape) {
+    body.touch #top { left: calc(max(10px, env(safe-area-inset-left)) + 252px); }
+    body.touch #score { position: fixed; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); }
+    #stick { bottom: calc(16px + env(safe-area-inset-bottom)); }
+    #buttons { left: auto; width: min(320px, 44vw); }
+    #buttons button, body.touch #speed { min-height: 46px; }
+  }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./sample_project/node_modules/three/build/three.module.js", "three/addons/": "./sample_project/node_modules/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="top">
+  <div id="caption" class="hud"></div>
+  <div id="message" class="hud"></div>
+  <div id="score" class="hud"></div>
+</div>
+<div id="keys" class="hud"></div>
+<div id="start" class="loading">
+  <h1>Turtle Tunnel</h1>
+  <h2>Techno Tacos</h2>
+  <p id="loading">Loading the beach...</p>
+  <p id="prompt">Click to start. WASD to walk, mouse to look, Shift to run, Esc to stop</p>
+</div>
+<div id="touch"></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
